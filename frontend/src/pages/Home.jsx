@@ -1,20 +1,17 @@
 import { useEffect, useRef, useState } from "react"
 import { useLocation, useOutletContext } from "react-router-dom"
+import { Modal } from "../components/Modal"
 import { VerdictCard } from "../components/VerdictCard"
-import { PaperCard } from "../components/PaperCard"
 import { SummaryBar } from "../components/SummaryBar"
-import { MOCK_RESULT, USE_MOCK_DATA } from "../mockData"
+import { DEMO_CASES, getMockResultForInput, USE_MOCK_DATA } from "../mockData"
 
-const DEMO_CLAIM = "GPT-4 achieves 87% on HumanEval."
-const DEMO_SOURCE_URL = "https://arxiv.org/abs/2303.08774"
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "")
 
 const LOADING_MESSAGES = [
-  "🔎 Extracting claims from text...",
-  "📚 Indexing cited papers in Nia...",
-  "🔬 Searching for actual findings...",
-  "🧠 Comparing claims vs reality...",
-  "📖 Finding real related papers...",
+  "🔗 Indexing source URL in Nia...",
+  "🔎 Searching source for relevant evidence...",
+  "🧠 Comparing claim against source findings...",
+  "🧾 Finalizing grounded verdict...",
 ]
 
 export default function Home() {
@@ -27,11 +24,14 @@ export default function Home() {
 
   const [text, setText] = useState("")
   const [topic, setTopic] = useState("")
+  const [citation, setCitation] = useState("")
   const [urlError, setUrlError] = useState("")
   const [requestError, setRequestError] = useState("")
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState("")
+  const [submittedInput, setSubmittedInput] = useState({ sourceUrl: "", citation: "" })
+  const [demoModalOpen, setDemoModalOpen] = useState(false)
 
   function isValidUrl(s) {
     try {
@@ -82,13 +82,23 @@ export default function Home() {
   }, [location])
 
   async function handleCheck() {
+    const claimText = text.trim()
     const sourceUrl = topic.trim()
-    if (sourceUrl && !isValidUrl(sourceUrl)) {
+    const citationText = citation.trim()
+
+    if (!sourceUrl) {
+      setUrlError("Source URL is required.")
+      return
+    }
+
+    if (!isValidUrl(sourceUrl)) {
       setUrlError("Please enter a valid URL starting with http:// or https://")
       return
     }
+
     setUrlError("")
     setRequestError("")
+    setSubmittedInput({ sourceUrl, citation: citationText })
 
     setLoading(true)
     setResult(null)
@@ -106,14 +116,20 @@ export default function Home() {
 
     try {
       if (USE_MOCK_DATA) {
-        setResult(normalizeResult(MOCK_RESULT, text.trim(), sourceUrl))
+        setResult(normalizeResult(getMockResultForInput(claimText, sourceUrl), claimText, sourceUrl))
         return
+      }
+
+      const requestBody = {
+        claim: claimText,
+        source_url: sourceUrl,
+        ...(citationText ? { citation: citationText } : {}),
       }
 
       const res = await fetch(`${API_BASE}/check`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ claim: text.trim(), source_url: sourceUrl }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!res.ok) {
@@ -122,7 +138,7 @@ export default function Home() {
       }
 
       const payload = await res.json()
-      setResult(normalizeResult(payload, text.trim(), sourceUrl))
+      setResult(normalizeResult(payload, claimText, sourceUrl))
     } catch (err) {
       setRequestError(err instanceof Error ? err.message : "Failed to verify claim")
     } finally {
@@ -134,12 +150,23 @@ export default function Home() {
   function handleClear() {
     setText("")
     setTopic("")
+    setCitation("")
     setUrlError("")
     setRequestError("")
     setResult(null)
     setLoading(false)
     setLoadingMsg("")
+    setSubmittedInput({ sourceUrl: "", citation: "" })
     inputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+
+  function loadDemoCase(sample) {
+    setText(sample.claim)
+    setTopic(sample.sourceUrl)
+    setCitation(sample.citation || "")
+    setUrlError("")
+    setRequestError("")
+    setDemoModalOpen(false)
   }
 
   const hasRun = loading || result !== null
@@ -168,8 +195,8 @@ export default function Home() {
           </h1>
 
           <p className="font-mono text-sm sm:text-base text-white/60 mt-6 max-w-[520px]">
-            Paste AI-generated research text. SourceCheck finds the real papers,
-            corrects the wrong numbers, and exposes the hallucinated citations.
+            Check one claim against one source. SourceCheck compares the claim to
+            grounded evidence and returns a clear verdict.
           </p>
 
           <button
@@ -207,7 +234,7 @@ export default function Home() {
             your sources.
           </h2>
           <p className="font-mono text-sm text-white/50 mt-4 max-w-md mx-auto">
-            Enter one claim and optionally include a source URL for verification.
+            Enter a single claim, a required source URL, and an optional citation hint.
           </p>
         </div>
 
@@ -223,35 +250,56 @@ export default function Home() {
             style={{ height: "clamp(7rem, 22vh, 11rem)" }}
           />
 
-          <div>
-            <input
-              value={topic}
-              onChange={(e) => {
-                setTopic(e.target.value)
-                if (urlError) setUrlError("")
-              }}
-              type="url"
-              placeholder="Optional source URL  ·  e.g. https://arxiv.org/abs/2303.08774"
-              className={`w-full bg-white/[0.03] border rounded-xl
-                         px-4 py-3 text-sm text-gray-100 focus:outline-none
-                         focus:bg-white/[0.05]
-                         transition-all font-mono backdrop-blur-sm placeholder:text-white/30
-                         ${urlError
-                            ? "border-red-500/70 focus:border-red-500"
-                            : "border-white/10 focus:border-white/30"}`}
-            />
-            {urlError && (
-              <p className="mt-2 font-mono text-xs text-red-400/90 flex items-center gap-2">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
-                {urlError}
-              </p>
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="min-w-0">
+              <label className="block font-mono text-xs uppercase tracking-widest text-white/60 mb-2">
+                Source URL (Required)
+              </label>
+              <input
+                value={topic}
+                onChange={(e) => {
+                  setTopic(e.target.value)
+                  if (urlError) setUrlError("")
+                }}
+                type="url"
+                placeholder="https://arxiv.org/abs/2303.08774"
+                className={`w-full bg-white/[0.03] border rounded-xl
+                           px-4 py-3 text-sm text-gray-100 focus:outline-none
+                           focus:bg-white/[0.05]
+                           transition-all font-mono backdrop-blur-sm placeholder:text-white/30
+                           ${urlError
+                              ? "border-red-500/70 focus:border-red-500"
+                              : "border-white/10 focus:border-white/30"}`}
+              />
+              {urlError && (
+                <p className="mt-2 font-mono text-xs text-red-400/90 flex items-center gap-2">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
+                  {urlError}
+                </p>
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <label className="block font-mono text-xs uppercase tracking-widest text-white/60 mb-2">
+                Citation Hint (Optional)
+              </label>
+              <input
+                value={citation}
+                onChange={(e) => setCitation(e.target.value)}
+                type="text"
+                placeholder="e.g. GPT-4 Technical Report (2023)"
+                className="w-full bg-white/[0.03] border border-white/10 rounded-xl
+                           px-4 py-3 text-sm text-gray-100 focus:outline-none
+                           focus:border-white/30 focus:bg-white/[0.05]
+                           transition-all font-mono backdrop-blur-sm placeholder:text-white/30"
+              />
+            </div>
           </div>
 
           <div className="flex items-center justify-center gap-3 pt-2 flex-wrap">
             <button
               onClick={handleClear}
-              disabled={loading || (!text && !topic && !result)}
+              disabled={loading || (!text && !topic && !citation && !result)}
               className="px-5 h-11 rounded-md font-mono text-sm uppercase tracking-wider
                          border border-white/15 bg-transparent hover:bg-white/5
                          text-white/60 hover:text-white/90
@@ -261,24 +309,8 @@ export default function Home() {
               [ Clear ]
             </button>
             <button
-              onClick={() => {
-                setText(DEMO_CLAIM)
-                setTopic(DEMO_SOURCE_URL)
-                setUrlError("")
-                setRequestError("")
-              }}
-              disabled={loading}
-              className="px-5 h-11 rounded-md font-mono text-sm uppercase tracking-wider
-                         border border-white/15 bg-transparent hover:bg-white/5
-                         text-white/70 hover:text-white
-                         disabled:opacity-30 disabled:cursor-not-allowed
-                         transition-colors"
-            >
-              [ Load Demo ]
-            </button>
-            <button
               onClick={handleCheck}
-              disabled={loading || !text.trim()}
+              disabled={loading || !text.trim() || !topic.trim()}
               className="px-6 h-11 rounded-md font-mono text-sm uppercase tracking-wider
                          border border-white/40 bg-white text-black
                          hover:bg-white/90 disabled:opacity-30 disabled:cursor-not-allowed
@@ -328,29 +360,78 @@ export default function Home() {
             )}
 
             {result && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-4">
-                  <SummaryBar summary={result.summary} total={result.claims_checked} />
-                  {result.verdicts.map((v, i) => <VerdictCard key={i} verdict={v} />)}
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="font-mono text-xs uppercase tracking-widest text-white/60">
-                      Real Sources
-                    </h3>
-                    <p className="text-xs text-white/40 mt-1 font-mono">
-                      Every paper real · every link clickable
+              <div className="max-w-3xl mx-auto space-y-4">
+                <SummaryBar summary={result.summary} total={result.claims_checked} />
+                {result.verdicts.map((v, i) => <VerdictCard key={i} verdict={v} />)}
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 backdrop-blur-sm">
+                  <h3 className="font-mono text-xs uppercase tracking-widest text-white/60">
+                    Source Context
+                  </h3>
+                  <p className="text-xs text-white/40 mt-1 font-mono">
+                    URL used for this check:
+                  </p>
+                  <a
+                    href={submittedInput.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-block text-sm text-white/80 hover:text-white underline break-all"
+                  >
+                    {submittedInput.sourceUrl}
+                  </a>
+                  {submittedInput.citation && (
+                    <p className="text-xs text-white/50 mt-3 font-mono">
+                      Citation hint: {submittedInput.citation}
                     </p>
-                  </div>
-                  {result.related_papers.length > 0
-                    ? result.related_papers.map((p, i) => <PaperCard key={i} paper={p} />)
-                    : <p className="text-sm text-white/40">No related papers found</p>
-                  }
+                  )}
                 </div>
               </div>
             )}
           </div>
         </section>
+      )}
+
+      {USE_MOCK_DATA && (
+        <>
+          <button
+            onClick={() => setDemoModalOpen(true)}
+            className="fixed bottom-6 right-6 z-40 px-4 h-11 rounded-md
+                       font-mono text-xs uppercase tracking-wider
+                       border border-white/30 bg-black/70 hover:bg-black/85
+                       text-white/85 hover:text-white backdrop-blur-sm transition-colors"
+          >
+            [ Demo Cases ]
+          </button>
+
+          <Modal open={demoModalOpen} onClose={() => setDemoModalOpen(false)}>
+            <div className="space-y-4">
+              <h3 className="font-sentient text-2xl leading-tight">
+                Demo Cases
+              </h3>
+              <p className="font-mono text-xs text-white/60 uppercase tracking-widest">
+                Quick-fill claim, source URL, and citation for mock testing
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {DEMO_CASES.map((sample) => (
+                  <button
+                    key={sample.label}
+                    onClick={() => loadDemoCase(sample)}
+                    disabled={loading}
+                    className="w-full text-left px-4 py-3 rounded-lg
+                               border border-white/15 bg-white/[0.02] hover:bg-white/[0.06]
+                               text-white/85 disabled:opacity-30 disabled:cursor-not-allowed
+                               transition-colors"
+                  >
+                    <p className="font-mono text-[11px] uppercase tracking-widest text-white/60">
+                      {sample.label}
+                    </p>
+                    <p className="text-sm mt-1 leading-snug">{sample.claim}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Modal>
+        </>
       )}
     </>
   )
