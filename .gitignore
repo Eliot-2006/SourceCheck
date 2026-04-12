@@ -1,0 +1,87 @@
+# ──────────────────────────────
+# Python / Backend
+# ──────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ──────────────────────────────
+# Environment Variables
+# ──────────────────────────────
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# ──────────────────────────────
+# Node / Frontend (Vite + React)
+# ──────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+*.local
+
+# ──────────────────────────────
+# Vite / Build Artifacts
+# ──────────────────────────────
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# ──────────────────────────────
+# Tailwind / shadcn
+# ──────────────────────────────
+frontend/components.json.bak
+
+# ──────────────────────────────
+# OS & Editor
+# ──────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ──────────────────────────────
+# Railway & Vercel
+# ──────────────────────────────
+.vercel/
+.railway/
+
+# ──────────────────────────────
+# Logs & Temp
+# ──────────────────────────────
+*.log
+logs/
+*.tmp
+*.temp
+.cache/
+
+# ──────────────────────────────
+# Test / Coverage
+# ──────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
