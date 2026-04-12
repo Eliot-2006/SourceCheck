@@ -3,15 +3,10 @@ import { useLocation, useOutletContext } from "react-router-dom"
 import { VerdictCard } from "../components/VerdictCard"
 import { PaperCard } from "../components/PaperCard"
 import { SummaryBar } from "../components/SummaryBar"
-import { MOCK_RESULT } from "../mockData"
 
-const DEMO_TEXT = `Recent advances in large language models have been remarkable.
-GPT-4 achieves 87% on the HumanEval coding benchmark according to the GPT-4
-technical report (OpenAI, 2023). Chain-of-thought prompting, first introduced
-by OpenAI researchers in 2022, has significantly improved reasoning capabilities.
-Large language models also demonstrate emergent abilities that appear suddenly
-at scale. The original Transformer architecture was proposed in the landmark
-paper "Attention Is All You Need" published in 2017 by Vaswani et al.`
+const DEMO_CLAIM = "GPT-4 achieves 87% on HumanEval."
+const DEMO_SOURCE_URL = "https://arxiv.org/abs/2303.08774"
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "")
 
 const LOADING_MESSAGES = [
   "🔎 Extracting claims from text...",
@@ -32,6 +27,7 @@ export default function Home() {
   const [text, setText] = useState("")
   const [topic, setTopic] = useState("")
   const [urlError, setUrlError] = useState("")
+  const [requestError, setRequestError] = useState("")
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState("")
@@ -42,6 +38,35 @@ export default function Home() {
       return u.protocol === "http:" || u.protocol === "https:"
     } catch {
       return false
+    }
+  }
+
+  function normalizeResult(payload, claimText, sourceUrl) {
+    if (payload && Array.isArray(payload.verdicts)) {
+      return {
+        ...payload,
+        summary: payload.summary || {},
+        claims_checked: payload.claims_checked ?? payload.verdicts.length,
+        related_papers: Array.isArray(payload.related_papers) ? payload.related_papers : [],
+      }
+    }
+
+    const verdictValue = payload?.verdict || "unverifiable"
+    const normalizedVerdict = {
+      ...payload,
+      claim: payload?.claim || claimText,
+      what_claim_says: payload?.what_claim_says || payload?.claim || claimText,
+      input_type: payload?.input_type || (sourceUrl ? "cited" : "uncited"),
+      verdict: verdictValue,
+      confidence: payload?.confidence || "medium",
+      explanation: payload?.explanation || "Verification complete.",
+    }
+
+    return {
+      verdicts: [normalizedVerdict],
+      summary: { [verdictValue]: 1 },
+      claims_checked: 1,
+      related_papers: Array.isArray(payload?.related_papers) ? payload.related_papers : [],
     }
   }
 
@@ -56,11 +81,13 @@ export default function Home() {
   }, [location])
 
   async function handleCheck() {
-    if (!isValidUrl(topic)) {
+    const sourceUrl = topic.trim()
+    if (sourceUrl && !isValidUrl(sourceUrl)) {
       setUrlError("Please enter a valid URL starting with http:// or https://")
       return
     }
     setUrlError("")
+    setRequestError("")
 
     setLoading(true)
     setResult(null)
@@ -76,19 +103,33 @@ export default function Home() {
       setLoadingMsg(LOADING_MESSAGES[i])
     }, 4000)
 
-    // TODO (backend integration): replace this mock with a real fetch to
-    // `${import.meta.env.VITE_API_URL}/check` once the backend is ready.
-    await new Promise((r) => setTimeout(r, 2000))
-    setResult(MOCK_RESULT)
+    try {
+      const res = await fetch(`${API_BASE}/check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ claim: text.trim(), source_url: sourceUrl }),
+      })
 
-    clearInterval(interval)
-    setLoading(false)
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(errorText || `Request failed with status ${res.status}`)
+      }
+
+      const payload = await res.json()
+      setResult(normalizeResult(payload, text.trim(), sourceUrl))
+    } catch (err) {
+      setRequestError(err instanceof Error ? err.message : "Failed to verify claim")
+    } finally {
+      clearInterval(interval)
+      setLoading(false)
+    }
   }
 
   function handleClear() {
     setText("")
     setTopic("")
     setUrlError("")
+    setRequestError("")
     setResult(null)
     setLoading(false)
     setLoadingMsg("")
@@ -160,8 +201,7 @@ export default function Home() {
             your sources.
           </h2>
           <p className="font-mono text-sm text-white/50 mt-4 max-w-md mx-auto">
-            Paste your AI-generated text below. A topic hint helps us surface
-            the most relevant related papers.
+            Enter one claim and optionally include a source URL for verification.
           </p>
         </div>
 
@@ -169,7 +209,7 @@ export default function Home() {
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Paste AI-generated research text here…"
+            placeholder="Enter a single claim to verify"
             className="w-full bg-white/[0.03] border border-white/10 rounded-xl
                        p-4 text-sm text-gray-100 resize-none focus:outline-none
                        focus:border-white/30 focus:bg-white/[0.05]
@@ -184,9 +224,8 @@ export default function Home() {
                 setTopic(e.target.value)
                 if (urlError) setUrlError("")
               }}
-              required
               type="url"
-              placeholder="Paste the source URL  ·  e.g. https://arxiv.org/abs/2303.08774"
+              placeholder="Optional source URL  ·  e.g. https://arxiv.org/abs/2303.08774"
               className={`w-full bg-white/[0.03] border rounded-xl
                          px-4 py-3 text-sm text-gray-100 focus:outline-none
                          focus:bg-white/[0.05]
@@ -217,9 +256,10 @@ export default function Home() {
             </button>
             <button
               onClick={() => {
-                setText(DEMO_TEXT)
-                setTopic("https://arxiv.org/abs/2303.08774")
+                setText(DEMO_CLAIM)
+                setTopic(DEMO_SOURCE_URL)
                 setUrlError("")
+                setRequestError("")
               }}
               disabled={loading}
               className="px-5 h-11 rounded-md font-mono text-sm uppercase tracking-wider
@@ -232,7 +272,7 @@ export default function Home() {
             </button>
             <button
               onClick={handleCheck}
-              disabled={loading || !text.trim() || !topic.trim()}
+              disabled={loading || !text.trim()}
               className="px-6 h-11 rounded-md font-mono text-sm uppercase tracking-wider
                          border border-white/40 bg-white text-black
                          hover:bg-white/90 disabled:opacity-30 disabled:cursor-not-allowed
@@ -241,6 +281,12 @@ export default function Home() {
               {loading ? "[ Checking… ]" : "[ Check Sources ]"}
             </button>
           </div>
+
+          {requestError && (
+            <p className="text-center font-mono text-xs text-red-400/90">
+              {requestError}
+            </p>
+          )}
         </div>
       </section>
 
