@@ -1,3 +1,78 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@font-face {
+  font-family: 'Sentient';
+  src: url('/fonts/Sentient-Extralight.woff') format('woff');
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sentient';
+  src: url('/fonts/Sentient-LightItalic.woff') format('woff');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+  --primary: #FFC700;
+  --border: #424242;
+}
+
+html, body, #root {
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+}
+
+body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.font-sentient {
+  font-family: 'Sentient', serif;
+}
+
+#webgl {
+  top: 0;
+  left: 0;
+  position: fixed;
+  height: 100svh;
+  width: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+#webgl canvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* Static fallback background for low-power GPUs */
+.static-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 60%, rgba(255, 255, 255, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 70% at 50% 70%, rgba(255, 199, 0, 0.04) 0%, transparent 70%),
+    #000000;
+}
+
+.static-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.12) 1px, transparent 1px);
+  background-size: 3px 3px;
+  mask-image: radial-gradient(ellipse 60% 50% at 50% 60%, black 20%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 60%, black 20%, transparent 70%);
+  opacity: 0.5;
+}
