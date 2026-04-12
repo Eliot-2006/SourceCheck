@@ -2,22 +2,29 @@ import { useEffect } from "react"
 
 const TEAM = [
   {
-    name: "Your Name",
-    role: "Frontend",
+    name: "Piqim",
+    role: "Fullstack Developer",
     img: "/team/dev1.jpg",
-    initials: "YN",
-    bio: "Frontend developer on SourceCheck. Built the UI, the particles background, and the claim-verdict display.",
+    initials: "PQ",
+    github: "github.com/piqim",
+    githubLabel: "@piqim",
+    bio: "Fullstack developer on SourceCheck, focused primarily on frontend. Led the UI/UX implementation, interactive background, and verdict experience, while also contributing on backend-facing work including API usage patterns and early frontend-backend integration flow.",
   },
   {
-    name: "Partner Name",
-    role: "Backend",
+    name: "Eliot",
+    role: "Fullstack Developer",
     img: "/team/dev2.jpg",
-    initials: "PN",
-    bio: "Backend developer on SourceCheck. Wired up the Nia API, Groq claim extraction, and the verdict pipeline.",
+    initials: "EL",
+    github: "https://github.com/Eliot-2006",
+    githubLabel: "@Eliot-2006",
+    bio: "Fullstack developer on SourceCheck, focused primarily on backend. Built the Nia and Groq pipeline, claim extraction, and verification logic, while also supporting minor frontend implementation to keep product flow and presentation cohesive.",
   },
 ]
 
 export default function About() {
+  const normalizeGithubUrl = (url) =>
+    url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" })
   }, [])
@@ -84,6 +91,14 @@ export default function About() {
               <p className="font-mono text-xs text-white/60 leading-relaxed">
                 {p.bio}
               </p>
+              <a
+                href={normalizeGithubUrl(p.github)}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 font-mono text-[10px] uppercase tracking-widest text-white/50 hover:text-white transition-colors"
+              >
+                {p.githubLabel}
+              </a>
             </div>
           ))}
         </div>

@@ -31,9 +31,19 @@ export default function Home() {
 
   const [text, setText] = useState("")
   const [topic, setTopic] = useState("")
+  const [urlError, setUrlError] = useState("")
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState("")
+
+  function isValidUrl(s) {
+    try {
+      const u = new URL(s.trim())
+      return u.protocol === "http:" || u.protocol === "https:"
+    } catch {
+      return false
+    }
+  }
 
   // Handle navigation-hash: when arriving with #checker, scroll there
   useEffect(() => {
@@ -46,6 +56,12 @@ export default function Home() {
   }, [location])
 
   async function handleCheck() {
+    if (!isValidUrl(topic)) {
+      setUrlError("Please enter a valid URL starting with http:// or https://")
+      return
+    }
+    setUrlError("")
+
     setLoading(true)
     setResult(null)
 
@@ -72,6 +88,7 @@ export default function Home() {
   function handleClear() {
     setText("")
     setTopic("")
+    setUrlError("")
     setResult(null)
     setLoading(false)
     setLoadingMsg("")
@@ -160,16 +177,31 @@ export default function Home() {
             style={{ height: "clamp(7rem, 22vh, 11rem)" }}
           />
 
-          <input
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            required
-            placeholder="Source or topic  ·  required  ·  e.g. arXiv:2303.08774 or large language model reasoning"
-            className="w-full bg-white/[0.03] border border-white/10 rounded-xl
-                       px-4 py-3 text-sm text-gray-100 focus:outline-none
-                       focus:border-white/30 focus:bg-white/[0.05]
-                       transition-all font-mono backdrop-blur-sm placeholder:text-white/30"
-          />
+          <div>
+            <input
+              value={topic}
+              onChange={(e) => {
+                setTopic(e.target.value)
+                if (urlError) setUrlError("")
+              }}
+              required
+              type="url"
+              placeholder="Paste the source URL  ·  e.g. https://arxiv.org/abs/2303.08774"
+              className={`w-full bg-white/[0.03] border rounded-xl
+                         px-4 py-3 text-sm text-gray-100 focus:outline-none
+                         focus:bg-white/[0.05]
+                         transition-all font-mono backdrop-blur-sm placeholder:text-white/30
+                         ${urlError
+                            ? "border-red-500/70 focus:border-red-500"
+                            : "border-white/10 focus:border-white/30"}`}
+            />
+            {urlError && (
+              <p className="mt-2 font-mono text-xs text-red-400/90 flex items-center gap-2">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
+                {urlError}
+              </p>
+            )}
+          </div>
 
           <div className="flex items-center justify-center gap-3 pt-2 flex-wrap">
             <button
@@ -186,7 +218,8 @@ export default function Home() {
             <button
               onClick={() => {
                 setText(DEMO_TEXT)
-                setTopic("large language model reasoning")
+                setTopic("https://arxiv.org/abs/2303.08774")
+                setUrlError("")
               }}
               disabled={loading}
               className="px-5 h-11 rounded-md font-mono text-sm uppercase tracking-wider
