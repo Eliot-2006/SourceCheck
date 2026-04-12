@@ -145,18 +145,33 @@ class SourceCheckService:
             detail=f"Nia timed out after {max_wait_seconds}s (last status: {last_status})",
         )
 
+    async def nia_post(self, path: str, body: dict, retries: int = 3, timeout: int = 60) -> dict:
+        """POST to Nia with per-request timeout and retry on ReadTimeout."""
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                response = await self.client.post(
+                    f"{self.settings.nia_base_url}{path}",
+                    headers={"Authorization": f"Bearer {self.settings.nia_api_key}"},
+                    json=body,
+                    timeout=timeout,
+                )
+                response.raise_for_status()
+                return response.json()
+            except httpx.TimeoutException as exc:
+                last_exc = exc
+                print(f"[Nia POST] timeout on attempt {attempt + 1}/{retries}, retrying... path={path}")
+                await asyncio.sleep(3)
+        raise HTTPException(
+            status_code=504,
+            detail=f"Nia POST {path} timed out after {retries} attempts",
+        ) from last_exc
+
     async def index_source(self, url: str) -> str:
         is_arxiv = "arxiv.org" in url
         source_type = "research_paper" if is_arxiv else "documentation"
 
-        response = await self.client.post(
-            f"{self.settings.nia_base_url}/sources",
-            headers={"Authorization": f"Bearer {self.settings.nia_api_key}"},
-            json={"type": source_type, "url": url},
-        )
-        response.raise_for_status()
-
-        payload = response.json()
+        payload = await self.nia_post("/sources", {"type": source_type, "url": url})
         source_id = payload.get("id") or payload.get("source_id")
         if not source_id:
             raise HTTPException(status_code=502, detail="Nia did not return a source ID")
@@ -168,17 +183,15 @@ class SourceCheckService:
         return source_id
 
     async def search_source(self, source_id: str, query: str) -> str:
-        response = await self.client.post(
-            f"{self.settings.nia_base_url}/search",
-            headers={"Authorization": f"Bearer {self.settings.nia_api_key}"},
-            json={
+        payload = await self.nia_post(
+            "/search",
+            {
                 "mode": "query",
                 "messages": [{"role": "user", "content": query}],
                 "data_sources": [source_id],
             },
+            timeout=30,
         )
-        response.raise_for_status()
-        payload = response.json()
         fragments: list[str] = []
         _collect_text_fragments(payload, fragments)
 
