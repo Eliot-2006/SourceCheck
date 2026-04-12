@@ -3,6 +3,7 @@ import { useLocation, useOutletContext } from "react-router-dom"
 import { VerdictCard } from "../components/VerdictCard"
 import { PaperCard } from "../components/PaperCard"
 import { SummaryBar } from "../components/SummaryBar"
+import { MOCK_RESULT, USE_MOCK_DATA } from "../mockData"
 
 const DEMO_CLAIM = "GPT-4 achieves 87% on HumanEval."
 const DEMO_SOURCE_URL = "https://arxiv.org/abs/2303.08774"
@@ -104,6 +105,11 @@ export default function Home() {
     }, 4000)
 
     try {
+      if (USE_MOCK_DATA) {
+        setResult(normalizeResult(MOCK_RESULT, text.trim(), sourceUrl))
+        return
+      }
+
       const res = await fetch(`${API_BASE}/check`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -152,7 +158,7 @@ export default function Home() {
                           font-mono text-xs text-white/60">
             <span className="inline-block w-2 h-2 rounded-full"
                   style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }} />
-            HACKATHON BUILD
+            SDxUCSD HACKATHON BUILD
           </div>
 
           <h1 className="font-sentient leading-[1.05] tracking-tight max-w-4xl"

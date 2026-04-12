@@ -1,3 +1,9 @@
+const ENV_USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA
+const DEFAULT_USE_MOCK_DATA = ENV_USE_MOCK_DATA == null ? false : ENV_USE_MOCK_DATA === "true"
+
+// Mock mode is always disabled in production builds.
+export const USE_MOCK_DATA = import.meta.env.PROD ? false : DEFAULT_USE_MOCK_DATA
+
 export const MOCK_RESULT = {
   claims_checked: 3,
   summary: {
