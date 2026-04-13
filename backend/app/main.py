@@ -3,7 +3,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .schemas import SourceCheckRequest, SourceCheckResponse
+from .schemas import (
+    ParagraphCheckRequest,
+    ParagraphCheckResponse,
+    SourceCheckRequest,
+    SourceCheckResponse,
+)
 from .sourcecheck import SourceCheckService
 
 app = FastAPI(title="SourceCheck API")
@@ -27,3 +32,11 @@ async def source_check(request: SourceCheckRequest) -> dict:
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         service = SourceCheckService(client, settings)
         return await service.check(request)
+
+
+@app.post("/check-paragraph", response_model=ParagraphCheckResponse)
+async def source_check_paragraph(request: ParagraphCheckRequest) -> dict:
+    settings = get_settings()
+    async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+        service = SourceCheckService(client, settings)
+        return await service.check_paragraph(request)

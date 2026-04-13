@@ -2,14 +2,14 @@
 
 This folder contains the SourceCheck frontend application built with React and Vite.
 
-SourceCheck helps users verify AI-generated research claims by presenting structured verdicts, corrections, and related paper suggestions in a clean, interactive UI.
+SourceCheck helps users verify paragraph-length research writing against a source by extracting cited claims, auditing them, and returning a grounded corrected version.
 
 ## Frontend Features
 
 - React single-page app with route navigation.
-- Checker workflow with text input, topic hint, loading states, and verdict output.
-- Summary and per-claim verdict cards.
-- Related papers panel with external links.
+- Checker workflow with paragraph input, source URL, optional citation hint, loading states, and verdict output.
+- Summary, corrected text, original text, and per-claim verdict cards.
+- Source context panel with external links.
 - Animated visual background using Three.js via React Three Fiber.
 
 ## Tech Stack
@@ -66,8 +66,6 @@ npm run lint
 
 ## Environment Variables
 
-Current UI behavior works without required environment variables because results are mocked.
-
 For backend integration, create a local env file named .env.local in this folder:
 
 VITE_API_URL=http://localhost:8000
@@ -76,12 +74,13 @@ VITE_API_URL=http://localhost:8000
 
 1. Open the app home page.
 2. Scroll to the checker section.
-3. Paste AI-generated research text.
-4. Enter a topic or source hint.
-5. Select Check Sources.
-6. Review verdict cards and related papers.
+3. Enter a paragraph or short passage to verify.
+4. Enter the source URL to check against.
+5. Optionally add a citation hint.
+6. Select Check Paragraph.
+7. Review the returned claim audit and corrected text.
 
-Use Load Demo to auto-fill sample content for quick testing.
+Use Demo Cases to auto-fill sample content for live backend testing.
 
 ## Deploy To Vercel
 

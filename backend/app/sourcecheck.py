@@ -7,7 +7,7 @@ import httpx
 from fastapi import HTTPException
 
 from .config import Settings
-from .schemas import SourceCheckRequest
+from .schemas import ParagraphCheckRequest, SourceCheckRequest
 
 VERDICT_SYSTEM = """Compare a research claim against actual findings from the source provided by the user.
 Return ONLY valid JSON (no markdown):
@@ -43,6 +43,42 @@ Grounding rules:
 - Be exact about numbers, dates, and named entities when the source provides them.
 
 NEVER guess facts. Only use what Nia found in the source."""
+
+EXTRACTION_SYSTEM = """Extract cited factual claims from a paragraph that should be verified against one provided source.
+Return ONLY valid JSON (no markdown):
+{
+  "claims": [
+    {
+      "claim": "standalone factual claim to verify",
+      "original_span": "exact span from the paragraph",
+      "citation": "citation cue from the sentence if present, else null"
+    }
+  ]
+}
+
+Extraction rules:
+- Extract only factual, source-attributed claims.
+- A claim qualifies if it includes an MLA-like citation, explicit source title mention, or clear attribution like "the paper/report/source says".
+- Ignore uncited framing, opinions, transitions, and unsupported side comments.
+- Preserve original_span exactly as written in the paragraph.
+- If a sentence contains multiple independently verifiable cited facts, split them into separate claims.
+- If attribution to the provided source is ambiguous, skip the span.
+- Return an empty claims array if no cited factual claims are present."""
+
+REWRITE_SYSTEM = """Rewrite a paragraph conservatively using verified claim outcomes.
+Return ONLY valid JSON (no markdown):
+{
+  "corrected_text": "rewritten paragraph"
+}
+
+Rewrite rules:
+- Preserve the original wording, structure, and tone whenever possible.
+- Only change text when a verified claim includes a grounded correction.
+- Leave confirmed claims unchanged.
+- Leave unverifiable claims unchanged.
+- Leave hallucinated_citation claims unchanged unless the verified correction explicitly provides replacement wording.
+- Never invent new facts, citations, or corrections from world knowledge.
+- If no grounded corrections are available, return the original text unchanged."""
 
 
 def clean_json(raw: str) -> str:
@@ -104,30 +140,70 @@ class SourceCheckService:
             )
 
     async def groq_call(self, messages: list[dict[str, str]], max_tokens: int = 1500) -> str:
-        try:
-            response = await self.client.post(
-                f"{self.settings.groq_base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.settings.groq_api_key}"},
-                json={
-                    "model": "llama-3.3-70b-versatile",
-                    "max_tokens": max_tokens,
-                    "messages": messages,
-                },
-            )
-            response.raise_for_status()
-        except httpx.TimeoutException as exc:
+        last_exc: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                response = await self.client.post(
+                    f"{self.settings.groq_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.settings.groq_api_key}"},
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "max_tokens": max_tokens,
+                        "messages": messages,
+                    },
+                )
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"]
+            except httpx.TimeoutException as exc:
+                last_exc = exc
+                print(f"[Groq] timeout attempt={attempt}/3")
+                await asyncio.sleep(2)
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                status_code = exc.response.status_code
+                if status_code == 429 or status_code >= 500:
+                    print(f"[Groq] retryable_status={status_code} attempt={attempt}/3")
+                    await asyncio.sleep(2)
+                    continue
+                detail = exc.response.text[:400] or exc.response.reason_phrase
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Groq request failed: {detail}",
+                ) from exc
+
+        if isinstance(last_exc, httpx.TimeoutException):
             raise HTTPException(
                 status_code=504,
                 detail="Groq timed out while synthesizing the verdict",
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            detail = exc.response.text[:400] or exc.response.reason_phrase
+            ) from last_exc
+        if isinstance(last_exc, httpx.HTTPStatusError):
+            detail = last_exc.response.text[:400] or last_exc.response.reason_phrase
             raise HTTPException(
                 status_code=502,
-                detail=f"Groq request failed: {detail}",
-            ) from exc
+                detail=f"Groq request failed after retries: {detail}",
+            ) from last_exc
+        raise HTTPException(status_code=502, detail="Groq request failed")
 
-        return response.json()["choices"][0]["message"]["content"]
+    async def groq_json_call(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        failure_detail: str,
+        retries: int = 3,
+    ) -> dict[str, Any]:
+        last_raw = ""
+        for attempt in range(1, retries + 1):
+            raw = await self.groq_call(messages, max_tokens=max_tokens)
+            last_raw = raw
+            try:
+                return json.loads(clean_json(raw))
+            except json.JSONDecodeError:
+                print(f"[Groq JSON] invalid_json attempt={attempt}/{retries}")
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"{failure_detail}. Last raw response: {last_raw[:400]}",
+        )
 
     async def nia_poll(
         self,
@@ -347,41 +423,51 @@ class SourceCheckService:
             return "unverifiable"
         return verdict
 
-    async def produce_verdict(
-        self,
-        request: SourceCheckRequest,
-        nia_findings: str,
-    ) -> dict[str, Any]:
-        print("[SourceCheck] verdict_started")
-        raw = await self.groq_call(
-            [
-                {"role": "system", "content": VERDICT_SYSTEM},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Claim: {request.claim}\n"
-                        f"Citation: {request.citation or 'not provided'}\n"
-                        f"Source URL: {request.source_url}\n\n"
-                        f"What Nia found in the source:\n{nia_findings}"
-                    ),
-                },
-            ],
-            max_tokens=700,
-        )
-        try:
-            result = json.loads(clean_json(raw))
-        except json.JSONDecodeError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail="Groq returned invalid JSON for the verdict",
-            ) from exc
+    def _clean_extracted_claims(self, payload: dict[str, Any]) -> list[dict[str, str | None]]:
+        raw_claims = payload.get("claims")
+        if not isinstance(raw_claims, list):
+            return []
 
-        _valid_verdicts = {
+        cleaned_claims: list[dict[str, str | None]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for item in raw_claims:
+            if not isinstance(item, dict):
+                continue
+
+            claim = self._normalize_optional_string(item.get("claim"))
+            original_span = self._normalize_optional_string(item.get("original_span"))
+            citation = self._normalize_optional_string(item.get("citation"))
+
+            if not claim or not original_span:
+                continue
+
+            key = (claim.lower(), original_span.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned_claims.append(
+                {
+                    "claim": claim,
+                    "original_span": original_span,
+                    "citation": citation,
+                }
+            )
+
+        return cleaned_claims
+
+    def _finalize_verdict_result(
+        self,
+        claim: str,
+        source_url: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        valid_verdicts = {
             "confirmed", "incorrect", "hallucinated_citation",
             "partially_correct", "unverifiable",
         }
         verdict = result.get("verdict")
-        if verdict not in _valid_verdicts:
+        if verdict not in valid_verdicts:
             verdict = "unverifiable"
         result["verdict"] = verdict
 
@@ -390,10 +476,10 @@ class SourceCheckService:
             confidence = "low"
         result["confidence"] = confidence
 
-        result["what_claim_says"] = self._normalize_optional_string(result.get("what_claim_says")) or request.claim
+        result["what_claim_says"] = self._normalize_optional_string(result.get("what_claim_says")) or claim
 
-        _nullable = ("what_paper_says", "correction", "paper_title", "arxiv_id", "arxiv_url")
-        for field in _nullable:
+        nullable_fields = ("what_paper_says", "correction", "paper_title", "arxiv_id", "arxiv_url")
+        for field in nullable_fields:
             result[field] = self._normalize_optional_string(result.get(field))
 
         explanation = self._normalize_optional_string(result.get("explanation"))
@@ -403,22 +489,120 @@ class SourceCheckService:
             explanation,
         )
 
-        if verdict in {"confirmed", "hallucinated_citation", "unverifiable"}:
-            result["correction"] = None
-
         final_verdict = result["verdict"]
         if final_verdict in {"confirmed", "hallucinated_citation", "unverifiable"}:
             result["correction"] = None
 
         result["explanation"] = explanation or self._fallback_explanation(final_verdict)
+        result["claim"] = claim
+        result["source_url"] = source_url
+        return result
 
-        result["claim"] = request.claim
-        result["source_url"] = request.source_url
+    def _build_summary(self, claims: list[dict[str, Any]]) -> dict[str, int]:
+        summary: dict[str, int] = {}
+        for claim in claims:
+            verdict = claim.get("verdict", "unverifiable")
+            summary[verdict] = summary.get(verdict, 0) + 1
+        return summary
+
+    async def produce_verdict(
+        self,
+        claim: str,
+        source_url: str,
+        citation: str,
+        nia_findings: str,
+    ) -> dict[str, Any]:
+        print("[SourceCheck] verdict_started")
+        result = await self.groq_json_call(
+            [
+                {"role": "system", "content": VERDICT_SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Claim: {claim}\n"
+                        f"Citation: {citation or 'not provided'}\n"
+                        f"Source URL: {source_url}\n\n"
+                        f"What Nia found in the source:\n{nia_findings}"
+                    ),
+                },
+            ],
+            max_tokens=700,
+            failure_detail="Groq returned invalid JSON for the verdict",
+        )
+
+        result = self._finalize_verdict_result(claim, source_url, result)
         print(
             "[SourceCheck] verdict_completed "
             f"verdict={result['verdict']} confidence={result['confidence']}"
         )
         return result
+
+    async def extract_claims(
+        self,
+        text: str,
+        source_url: str,
+        citation_hint: str,
+    ) -> list[dict[str, str | None]]:
+        print("[SourceCheck] extraction_started")
+        payload = await self.groq_json_call(
+            [
+                {"role": "system", "content": EXTRACTION_SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Source URL: {source_url}\n"
+                        f"Global citation hint: {citation_hint or 'not provided'}\n\n"
+                        f"Paragraph:\n{text}"
+                    ),
+                },
+            ],
+            max_tokens=900,
+            failure_detail="Groq returned invalid JSON while extracting claims",
+        )
+
+        claims = self._clean_extracted_claims(payload)
+        print(f"[SourceCheck] extraction_completed claims={len(claims)}")
+        return claims
+
+    async def rewrite_text(
+        self,
+        original_text: str,
+        verified_claims: list[dict[str, Any]],
+    ) -> str:
+        grounded_claims = []
+        for claim in verified_claims:
+            grounded_claims.append(
+                {
+                    "claim": claim["claim"],
+                    "original_span": claim["original_span"],
+                    "verdict": claim["verdict"],
+                    "correction": claim.get("correction"),
+                    "explanation": claim.get("explanation"),
+                }
+        )
+
+        print("[SourceCheck] rewrite_started")
+        payload = await self.groq_json_call(
+            [
+                {"role": "system", "content": REWRITE_SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Original paragraph:\n{original_text}\n\n"
+                        "Verified claim outcomes:\n"
+                        f"{json.dumps(grounded_claims, ensure_ascii=True)}"
+                    ),
+                },
+            ],
+            max_tokens=900,
+            failure_detail="Groq returned invalid JSON while rewriting the paragraph",
+        )
+
+        corrected_text = self._normalize_optional_string(payload.get("corrected_text"))
+        if not corrected_text:
+            corrected_text = original_text
+        print("[SourceCheck] rewrite_completed")
+        return corrected_text
 
     async def check(self, request: SourceCheckRequest) -> dict[str, Any]:
         self.ensure_configured()
@@ -438,4 +622,65 @@ class SourceCheckService:
             query = f"{request.claim}. {request.citation}"
 
         nia_findings = await self.search_source(source_id, query)
-        return await self.produce_verdict(request, nia_findings)
+        return await self.produce_verdict(
+            claim=request.claim,
+            source_url=request.source_url,
+            citation=request.citation,
+            nia_findings=nia_findings,
+        )
+
+    async def check_paragraph(self, request: ParagraphCheckRequest) -> dict[str, Any]:
+        self.ensure_configured()
+
+        if not request.text.strip():
+            raise HTTPException(status_code=400, detail="Text cannot be empty")
+        if not request.source_url.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Source URL is required so the paragraph can be checked against a specific source",
+            )
+
+        source_id = await self.index_source(request.source_url)
+        extracted_claims = await self.extract_claims(
+            text=request.text,
+            source_url=request.source_url,
+            citation_hint=request.citation_hint,
+        )
+
+        if not extracted_claims:
+            return {
+                "claims": [],
+                "summary": {},
+                "corrected_text": request.text,
+                "original_text": request.text,
+                "claims_checked": 0,
+            }
+
+        verified_claims: list[dict[str, Any]] = []
+        for claim_id, extracted in enumerate(extracted_claims, start=1):
+            claim_text = extracted["claim"] or ""
+            citation_parts = [
+                item for item in (extracted.get("citation"), request.citation_hint) if item
+            ]
+            citation = " | ".join(citation_parts)
+            query = claim_text if not citation else f"{claim_text}. {citation}"
+            nia_findings = await self.search_source(source_id, query)
+            verdict = await self.produce_verdict(
+                claim=claim_text,
+                source_url=request.source_url,
+                citation=citation,
+                nia_findings=nia_findings,
+            )
+            verdict["claim_id"] = claim_id
+            verdict["original_span"] = extracted["original_span"]
+            verdict.pop("source_url", None)
+            verified_claims.append(verdict)
+
+        corrected_text = await self.rewrite_text(request.text, verified_claims)
+        return {
+            "claims": verified_claims,
+            "summary": self._build_summary(verified_claims),
+            "corrected_text": corrected_text,
+            "original_text": request.text,
+            "claims_checked": len(verified_claims),
+        }

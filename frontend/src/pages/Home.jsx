@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from "react"
 import { useLocation, useOutletContext } from "react-router-dom"
-import { Modal } from "../components/Modal"
 import { VerdictCard } from "../components/VerdictCard"
 import { SummaryBar } from "../components/SummaryBar"
-import { DEMO_CASES, getMockResultForInput, USE_MOCK_DATA } from "../mockData"
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "")
 
 const LOADING_MESSAGES = [
   "🔗 Indexing source URL in Nia...",
   "🔎 Searching source for relevant evidence...",
-  "🧠 Comparing claim against source findings...",
-  "🧾 Finalizing grounded verdict...",
+  "🧠 Comparing extracted claims against source findings...",
+  "🧾 Rewriting paragraph with grounded corrections...",
 ]
 
 export default function Home() {
@@ -31,7 +29,6 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState("")
   const [submittedInput, setSubmittedInput] = useState({ sourceUrl: "", citation: "" })
-  const [demoModalOpen, setDemoModalOpen] = useState(false)
 
   function isValidUrl(s) {
     try {
@@ -42,36 +39,70 @@ export default function Home() {
     }
   }
 
-  function normalizeResult(payload, claimText, sourceUrl) {
-    if (payload && Array.isArray(payload.verdicts)) {
-      return {
-        ...payload,
-        summary: payload.summary || {},
-        claims_checked: payload.claims_checked ?? payload.verdicts.length,
-        related_papers: Array.isArray(payload.related_papers) ? payload.related_papers : [],
-      }
-    }
+  function makeSummary(verdicts) {
+    return verdicts.reduce((acc, item) => {
+      const key = item?.verdict || "unverifiable"
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+  }
 
-    const verdictValue = payload?.verdict || "unverifiable"
-    const normalizedVerdict = {
-      ...payload,
-      claim: payload?.claim || claimText,
-      what_claim_says: payload?.what_claim_says || payload?.claim || claimText,
-      input_type: payload?.input_type || (sourceUrl ? "cited" : "uncited"),
-      verdict: verdictValue,
-      confidence: payload?.confidence || "medium",
-      explanation: payload?.explanation || "Verification complete.",
-    }
-
+  function normalizeVerdictItem(item, fallbackText, sourceUrl) {
+    const verdictValue = item?.verdict || "unverifiable"
     return {
-      verdicts: [normalizedVerdict],
-      summary: { [verdictValue]: 1 },
-      claims_checked: 1,
-      related_papers: Array.isArray(payload?.related_papers) ? payload.related_papers : [],
+      ...item,
+      claim_id: item?.claim_id ?? item?.id ?? 1,
+      claim: item?.claim || item?.original_span || fallbackText,
+      original_span: item?.original_span || item?.claim || fallbackText,
+      what_claim_says: item?.what_claim_says || item?.original_span || item?.claim || fallbackText,
+      what_paper_says: item?.what_paper_says ?? null,
+      correction: item?.correction ?? null,
+      verdict: verdictValue,
+      confidence: item?.confidence || "medium",
+      input_type: item?.input_type || (sourceUrl ? "cited" : "uncited"),
+      explanation: item?.explanation || "Verification complete.",
     }
   }
 
-  // Handle navigation-hash: when arriving with #checker, scroll there
+  function normalizeResult(payload, textValue, sourceUrl) {
+    if (!payload) {
+      return {
+        original_text: textValue,
+        corrected_text: textValue,
+        verdicts: [],
+        summary: {},
+        claims_checked: 0,
+      }
+    }
+
+    const claimItems = Array.isArray(payload.claims)
+      ? payload.claims
+      : Array.isArray(payload.verdicts)
+        ? payload.verdicts
+        : payload.verdict
+          ? [payload]
+          : []
+
+    const verdicts = claimItems.map((item) => normalizeVerdictItem(item, textValue, sourceUrl))
+    const summary = payload.summary || makeSummary(verdicts)
+    const originalText = payload.original_text || payload.text || payload.claim || textValue
+    const correctedText =
+      payload.corrected_text ||
+      payload.corrected_paragraph ||
+      payload.rewritten_text ||
+      payload.correction ||
+      originalText
+
+    return {
+      ...payload,
+      original_text: originalText,
+      corrected_text: correctedText,
+      verdicts,
+      summary,
+      claims_checked: payload.claims_checked ?? verdicts.length,
+    }
+  }
+
   useEffect(() => {
     const hash = location.hash.replace("#", "")
     if (!hash) return
@@ -82,9 +113,14 @@ export default function Home() {
   }, [location])
 
   async function handleCheck() {
-    const claimText = text.trim()
+    const textValue = text.trim()
     const sourceUrl = topic.trim()
     const citationText = citation.trim()
+
+    if (!textValue) {
+      setRequestError("Paragraph text is required.")
+      return
+    }
 
     if (!sourceUrl) {
       setUrlError("Source URL is required.")
@@ -115,22 +151,29 @@ export default function Home() {
     }, 4000)
 
     try {
-      if (USE_MOCK_DATA) {
-        setResult(normalizeResult(getMockResultForInput(claimText, sourceUrl), claimText, sourceUrl))
-        return
+      const paragraphBody = {
+        text: textValue,
+        source_url: sourceUrl,
+        ...(citationText ? { citation_hint: citationText } : {}),
       }
 
-      const requestBody = {
-        claim: claimText,
+      const singleClaimFallbackBody = {
+        claim: textValue,
         source_url: sourceUrl,
         ...(citationText ? { citation: citationText } : {}),
       }
 
-      const res = await fetch(`${API_BASE}/check`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      })
+      const postJson = async (path, body) =>
+        fetch(`${API_BASE}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+
+      let res = await postJson("/check-paragraph", paragraphBody)
+      if (res.status === 404) {
+        res = await postJson("/check", singleClaimFallbackBody)
+      }
 
       if (!res.ok) {
         const errorText = await res.text()
@@ -138,9 +181,9 @@ export default function Home() {
       }
 
       const payload = await res.json()
-      setResult(normalizeResult(payload, claimText, sourceUrl))
+      setResult(normalizeResult(payload, textValue, sourceUrl))
     } catch (err) {
-      setRequestError(err instanceof Error ? err.message : "Failed to verify claim")
+      setRequestError(err instanceof Error ? err.message : "Failed to verify paragraph")
     } finally {
       clearInterval(interval)
       setLoading(false)
@@ -160,20 +203,10 @@ export default function Home() {
     inputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
-  function loadDemoCase(sample) {
-    setText(sample.claim)
-    setTopic(sample.sourceUrl)
-    setCitation(sample.citation || "")
-    setUrlError("")
-    setRequestError("")
-    setDemoModalOpen(false)
-  }
-
   const hasRun = loading || result !== null
 
   return (
     <>
-      {/* ——— HERO ——— */}
       <section
         id="hero"
         ref={heroRef}
@@ -195,8 +228,8 @@ export default function Home() {
           </h1>
 
           <p className="font-mono text-sm sm:text-base text-white/60 mt-6 max-w-[520px]">
-            Check one claim against one source. SourceCheck compares the claim to
-            grounded evidence and returns a clear verdict.
+            Check one paragraph against one source. SourceCheck extracts cited claims,
+            compares them to grounded evidence, and returns a clear audit.
           </p>
 
           <button
@@ -221,7 +254,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ——— INPUT ——— */}
       <section
         id="checker"
         ref={inputRef}
@@ -231,10 +263,10 @@ export default function Home() {
           <h2 className="font-sentient leading-[1.1] tracking-tight"
               style={{ fontSize: "clamp(2rem, 5.5vw, 3.75rem)" }}>
             Time to <i className="font-light">check</i><br />
-            your sources.
+            your paragraph.
           </h2>
           <p className="font-mono text-sm text-white/50 mt-4 max-w-md mx-auto">
-            Enter a single claim, a required source URL, and an optional citation hint.
+            Enter a paragraph or short passage, a required source URL, and an optional citation hint.
           </p>
         </div>
 
@@ -242,7 +274,7 @@ export default function Home() {
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Enter a single claim to verify"
+            placeholder="Paste a paragraph or short passage to verify"
             className="w-full bg-white/[0.03] border border-white/10 rounded-xl
                        p-4 text-sm text-gray-100 resize-none focus:outline-none
                        focus:border-white/30 focus:bg-white/[0.05]
@@ -316,9 +348,13 @@ export default function Home() {
                          hover:bg-white/90 disabled:opacity-30 disabled:cursor-not-allowed
                          transition-colors"
             >
-              {loading ? "[ Checking… ]" : "[ Check Sources ]"}
+              {loading ? "[ Checking… ]" : "[ Check Paragraph ]"}
             </button>
           </div>
+
+          <p className="text-center font-mono text-[11px] text-white/40">
+            Only cited or clearly source-attributed factual statements are checked in this version.
+          </p>
 
           {requestError && (
             <p className="text-center font-mono text-xs text-red-400/90">
@@ -328,7 +364,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ——— RESULTS ——— */}
       {hasRun && (
         <section
           id="results"
@@ -354,7 +389,7 @@ export default function Home() {
                                   rounded-full animate-spin" />
                 </div>
                 <p className="font-mono text-xs tracking-widest uppercase text-white/50 text-center">
-                  {loadingMsg || "Checking your sources…"}
+                  {loadingMsg || "Checking your paragraph…"}
                 </p>
               </div>
             )}
@@ -362,7 +397,41 @@ export default function Home() {
             {result && (
               <div className="max-w-3xl mx-auto space-y-4">
                 <SummaryBar summary={result.summary} total={result.claims_checked} />
-                {result.verdicts.map((v, i) => <VerdictCard key={i} verdict={v} />)}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 backdrop-blur-sm">
+                    <h3 className="font-mono text-xs uppercase tracking-widest text-white/60">
+                      Original Text
+                    </h3>
+                    <p className="mt-3 text-sm leading-7 whitespace-pre-wrap text-white/80">
+                      {result.original_text || text || "No text returned."}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 backdrop-blur-sm">
+                    <h3 className="font-mono text-xs uppercase tracking-widest text-white/60">
+                      Corrected Text
+                    </h3>
+                    <p className="mt-3 text-sm leading-7 whitespace-pre-wrap text-white/80">
+                      {result.corrected_text || "No corrected text returned."}
+                    </p>
+                  </div>
+                </div>
+
+                {result.verdicts.length > 0 ? (
+                  <div className="space-y-4">
+                    {result.verdicts.map((v, i) => (
+                      <VerdictCard key={v.claim_id ?? i} verdict={v} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 backdrop-blur-sm">
+                    <p className="text-sm text-white/70">
+                      No cited claims were extracted from this text.
+                    </p>
+                  </div>
+                )}
+
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 backdrop-blur-sm">
                   <h3 className="font-mono text-xs uppercase tracking-widest text-white/60">
                     Source Context
@@ -390,49 +459,6 @@ export default function Home() {
         </section>
       )}
 
-      {USE_MOCK_DATA && (
-        <>
-          <button
-            onClick={() => setDemoModalOpen(true)}
-            className="fixed bottom-6 right-6 z-40 px-4 h-11 rounded-md
-                       font-mono text-xs uppercase tracking-wider
-                       border border-white/30 bg-black/70 hover:bg-black/85
-                       text-white/85 hover:text-white backdrop-blur-sm transition-colors"
-          >
-            [ Demo Cases ]
-          </button>
-
-          <Modal open={demoModalOpen} onClose={() => setDemoModalOpen(false)}>
-            <div className="space-y-4">
-              <h3 className="font-sentient text-2xl leading-tight">
-                Demo Cases
-              </h3>
-              <p className="font-mono text-xs text-white/60 uppercase tracking-widest">
-                Quick-fill claim, source URL, and citation for mock testing
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {DEMO_CASES.map((sample) => (
-                  <button
-                    key={sample.label}
-                    onClick={() => loadDemoCase(sample)}
-                    disabled={loading}
-                    className="w-full text-left px-4 py-3 rounded-lg
-                               border border-white/15 bg-white/[0.02] hover:bg-white/[0.06]
-                               text-white/85 disabled:opacity-30 disabled:cursor-not-allowed
-                               transition-colors"
-                  >
-                    <p className="font-mono text-[11px] uppercase tracking-widest text-white/60">
-                      {sample.label}
-                    </p>
-                    <p className="text-sm mt-1 leading-snug">{sample.claim}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </Modal>
-        </>
-      )}
     </>
   )
 }

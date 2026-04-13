@@ -9,31 +9,31 @@ export const DEMO_SOURCE_URL = "https://arxiv.org/abs/2303.08774"
 export const DEMO_CASES = [
   {
     label: "Confirmed",
-    claim: "GPT-4 achieves 67.0% on the HumanEval coding benchmark in the 0-shot setting",
+    claim: "The GPT-4 Technical Report evaluates the model on a range of benchmarks, including coding tasks. In the evaluation section, the paper reports that GPT-4 achieves 67.0% on the HumanEval coding benchmark in the 0-shot setting.",
     sourceUrl: DEMO_SOURCE_URL,
     citation: "GPT-4 Technical Report (2023)",
   },
   {
     label: "Incorrect",
-    claim: "The GPT-4 Technical Report introduced the Transformer architecture in 2017",
+    claim: "The GPT-4 Technical Report discusses benchmark performance and prior model design choices. It also states that the GPT-4 Technical Report introduced the Transformer architecture in 2017.",
     sourceUrl: DEMO_SOURCE_URL,
     citation: "GPT-4 Technical Report (2023)",
   },
   {
     label: "Partially Correct",
-    claim: "GPT-4 is a Transformer-based model and achieves 87% on HumanEval",
+    claim: "According to the GPT-4 Technical Report, GPT-4 is a Transformer-based model and achieves 87% on HumanEval in the 0-shot setting.",
     sourceUrl: DEMO_SOURCE_URL,
     citation: "GPT-4 Technical Report (2023)",
   },
   {
     label: "Hallucinated Citation",
-    claim: "There are 7 colors in a rainbow",
+    claim: "The GPT-4 Technical Report focuses on technical evaluation and model capabilities. It also explains that there are 7 colors in a rainbow.",
     sourceUrl: DEMO_SOURCE_URL,
     citation: "GPT-4 Technical Report (2023)",
   },
   {
     label: "Unverifiable",
-    claim: "GPT-4 was trained on 12 trillion tokens",
+    claim: "The GPT-4 Technical Report withholds some implementation details while still summarizing model behavior. Based on that report, GPT-4 was trained on exactly 12 trillion tokens.",
     sourceUrl: DEMO_SOURCE_URL,
     citation: "GPT-4 Technical Report (2023)",
   },
