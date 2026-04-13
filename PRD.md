@@ -1,117 +1,237 @@
-# PRD: SourceCheck
+# Product Requirements Document: SourceCheck
 
-## Overview
+## 1. Overview
 
-SourceCheck is a paragraph-level research verification tool. A user pastes a paragraph or short passage, provides a single source URL, and optionally adds a citation hint. The system indexes the source with Nia, extracts claim-like spans from the paragraph, verifies each extracted claim against the source, and returns both a claim-by-claim audit and a corrected version of the paragraph.
+### Product Name
 
-The current MVP is optimized for demoability:
+SourceCheck
 
-- one paragraph at a time
-- one source URL for the whole check
-- source-grounded verification through Nia
-- conservative rewrite based on verified corrections
+### One-Line Description
 
-## Problem
+SourceCheck verifies source-attributed claims inside a paragraph against a real paper or article and returns both a claim-by-claim audit and a corrected version of the text.
 
-AI-generated summaries and essays often contain:
+### Product Summary
 
-- wrong numbers
-- incorrect attribution
-- made-up citations
-- unsupported implementation details
+SourceCheck is a research-verification tool designed for essays, summaries, and AI-assisted writing. A user provides:
 
-These mistakes are hard to catch quickly. SourceCheck is meant to show, against a real paper, which claims are right, which are wrong, and how the paragraph should read once the wrong claims are corrected.
+- a paragraph or short passage
+- a source URL
+- an optional citation hint
 
-## Product Scope
+The system then:
+
+1. indexes the source with Nia
+2. extracts factual, source-attributed claims from the passage
+3. verifies each extracted claim against the source
+4. rewrites the paragraph conservatively using only grounded corrections
+
+The current product is intentionally constrained to one source URL per check so the verification flow stays understandable, traceable, and reliable in a live demo.
+
+## 2. Problem Statement
+
+Research writing and AI-generated summaries frequently contain subtle factual errors that are difficult to detect quickly:
+
+- wrong benchmark numbers
+- incorrect attribution of ideas or methods
+- claims attached to the wrong citation
+- unsupported implementation details presented as fact
+
+Most current tools either summarize sources or generate text, but they do not clearly separate:
+
+- what the paragraph claims
+- what the source actually says
+- what should be corrected
+
+SourceCheck addresses that gap by using retrieval from the cited source as the grounding layer and returning a structured verification result rather than an opaque summary.
+
+## 3. Product Goals
+
+### Primary Goals
+
+- Verify source-attributed claims against a real source URL.
+- Extract claims from a paragraph rather than requiring perfect one-line inputs.
+- Show users exactly which claims are confirmed, incorrect, partially correct, hallucinated, or unverifiable.
+- Produce a corrected paragraph that preserves the original writing where possible.
+
+### Non-Goals
+
+- Multi-source citation resolution
+- Full essay workflows spanning many sources
+- Reference management
+- Accounts, saved history, collaboration, or authentication
+- General-purpose summarization of a source
+
+## 4. Target User
+
+SourceCheck is aimed at users who need a quick trust check on source-backed writing:
+
+- students reviewing essay paragraphs
+- researchers checking AI-generated summaries
+- hackathon judges evaluating groundedness
+- writers validating claims against a single cited paper
+
+## 5. User Story
+
+As a user, I want to paste a paragraph and the source it relies on so I can see:
+
+- which claims are actually supported
+- which claims are wrong or overstated
+- how the paragraph should read after grounded corrections are applied
+
+## 6. Product Scope
 
 ### In Scope
 
-- paragraph or short-passage input
-- one source URL
-- optional citation hint
-- extracted factual claims
-- per-claim verdicts
-- corrected paragraph rewrite
+- one paragraph or short passage per request
+- one source URL for the entire verification run
+- optional citation hint to improve extraction or retrieval
+- extracted factual claims with verdicts
+- paragraph rewrite based on grounded corrections
+- local development and demo usage
 
 ### Out of Scope
 
-- multi-source citation resolution
-- essay-length document workflows with many sources
-- persistence, accounts, history, or collaboration
-- deployment-specific infrastructure requirements
+- verifying an entire paper or long essay end to end
+- comparing a claim against multiple candidate sources
+- automatic bibliography parsing
+- automatic citation resolution from a works cited page
+- deployment orchestration or hosting requirements as part of the product contract
 
-## Core User Flow
+## 7. Functional Requirements
 
-1. User pastes a paragraph or short passage.
-2. User provides a source URL and optional citation hint.
-3. Backend indexes the source through Nia.
-4. Backend extracts cited or source-attributed factual claims from the paragraph.
-5. Backend verifies each extracted claim against the indexed source.
-6. Backend returns:
-   - extracted claims with verdicts
-   - summary counts
-   - corrected paragraph text
+### 7.1 Input Requirements
 
-## Goals
+The system must accept:
 
-- Verify paragraph claims against a real source.
-- Preserve Nia as the grounding layer.
-- Show a corrected paragraph that only changes source-grounded claims.
-- Produce a clean live demo against a known paper such as the GPT-4 Technical Report.
+- `text`: a paragraph or short passage
+- `source_url`: the source to verify against
+- `citation_hint` optional: a free-form reference hint such as paper title, author-year, or citation string
 
-## Success Criteria
+The system should reject empty text and empty source URLs.
 
-- `POST /check-paragraph` returns stable results for known demo cases.
-- The frontend shows extracted claims, verdict counts, and corrected text.
-- Confirmed claims remain unchanged in the rewrite.
-- Incorrect claims are corrected using only grounded source evidence.
-- Hallucinated or unverifiable claims do not trigger fabricated corrections.
+### 7.2 Claim Extraction
 
-## Tech Stack
+The system must extract only factual, source-attributed, or clearly source-referential claims from the input paragraph.
 
-### Backend
+The extraction stage should:
 
-- Python 3.11+
-- FastAPI
-- Uvicorn
-- httpx
-- python-dotenv
-- Pydantic v2
+- ignore filler, framing, and non-factual prose
+- preserve original wording where possible
+- split compound factual statements when they are independently verifiable
+- avoid inventing claims that are not present in the text
 
-### Frontend
+### 7.3 Claim Verification
 
-- React 18
-- Vite
-- Tailwind CSS
-- React Router
+Each extracted claim must be verified against the user-provided source URL through Nia retrieval.
 
-### External APIs
+The backend must:
 
-- Nia: source indexing and source search
-- Groq: structured extraction, verdict synthesis, and conservative rewrite
+- index the source URL if needed
+- wait until the source is ready
+- search the source using the extracted claim and optional citation hint
+- pass only retrieved evidence into the verdict synthesis step
 
-## Architecture
+### 7.4 Verdict Classification
+
+Each claim must return one of the following verdicts:
+
+- `confirmed`
+- `incorrect`
+- `partially_correct`
+- `hallucinated_citation`
+- `unverifiable`
+
+The response must also include:
+
+- confidence level
+- what the claim says
+- what the paper says
+- correction when source-grounded
+- explanation
+- source metadata when available
+
+### 7.5 Paragraph Rewrite
+
+The system must return a corrected version of the original paragraph.
+
+The rewrite must:
+
+- preserve original structure and tone where possible
+- update only the claim spans that are clearly wrong and clearly correctable
+- avoid adding unsupported facts
+- leave unverifiable claims unchanged unless the verified output clearly warrants a neutral correction
+
+## 8. Success Criteria
+
+The MVP is successful if it can reliably demonstrate the following on known test cases:
+
+- extract the correct claim spans from a paragraph with filler text
+- classify obvious supported and contradicted claims correctly
+- avoid fabricating corrections for unrelated or unsupported claims
+- produce a corrected paragraph that is visibly better than the input
+- run end to end in a live local demo using a real paper URL
+
+## 9. Technical Approach
+
+### Grounding Principle
+
+Nia is the source-grounding layer. Groq is used only to:
+
+- structure extracted claims
+- compare claims to retrieved evidence
+- rewrite text conservatively from verified outcomes
+
+Groq should not be used as a free-recall fact source.
+
+### Source Handling
+
+The system supports two practical source types:
+
+- `research_paper` for arXiv URLs
+- `documentation` for other URLs
+
+### Retrieval Strategy
+
+For each paragraph verification request:
+
+1. index source once
+2. extract claims once
+3. search source per extracted claim
+4. synthesize verdict per claim
+5. rewrite paragraph once from the verified claim set
+
+## 10. System Architecture
 
 ```text
 Frontend
-  -> POST /check-paragraph
-  -> render original text, corrected text, and extracted claim cards
+  -> collects paragraph, source URL, citation hint
+  -> calls POST /check-paragraph
+  -> renders original text, corrected text, summary, and claim cards
 
 Backend
-  1. validate text + source_url
-  2. index source via Nia
-  3. search source for extracted claims
-  4. use Groq to classify claim vs evidence
-  5. use Groq to rewrite paragraph conservatively
-  6. return paragraph response
+  -> validates request
+  -> indexes source via Nia
+  -> extracts claims
+  -> searches Nia per claim
+  -> classifies verdicts with Groq
+  -> rewrites paragraph with Groq
+  -> returns structured response
+
+External Services
+  -> Nia for indexing and search
+  -> Groq for extraction, verdict synthesis, and rewrite
 ```
 
-## API Contract
+## 11. API Contract
 
 ### `GET /health`
 
+Response:
+
 ```json
-{ "status": "ok" }
+{
+  "status": "ok"
+}
 ```
 
 ### `POST /check`
@@ -148,7 +268,7 @@ Response:
 
 ### `POST /check-paragraph`
 
-Primary MVP endpoint.
+Primary paragraph-verification endpoint.
 
 Request:
 
@@ -190,33 +310,65 @@ Response:
 }
 ```
 
-## Verification Flow
+## 12. Verification Flow
 
 ```text
 POST /check-paragraph
   1. Validate text and source_url
-  2. Determine Nia source type:
-       arxiv.org URL  -> research_paper
-       other URLs     -> documentation
-  3. POST /sources to index the URL
-  4. Poll GET /sources/{id} until ready
-  5. Extract cited or clearly source-attributed factual claims from the paragraph
+  2. Infer source type from URL
+       arxiv.org -> research_paper
+       otherwise -> documentation
+  3. Index the source via POST /sources
+  4. Poll the source until ready
+  5. Extract factual, source-attributed claims from the paragraph
   6. For each extracted claim:
-       a. POST /search against the indexed source
-       b. classify verdict from claim + source findings
-  7. Rewrite the paragraph conservatively from the verified outcomes
-  8. Return claims, summary, corrected_text, original_text, claims_checked
+       a. search the indexed source
+       b. synthesize a verdict from claim + retrieved evidence
+  7. Build summary counts
+  8. Rewrite the paragraph conservatively from verified outcomes
+  9. Return structured paragraph response
 ```
 
-## Verdict Definitions
+## 13. Verdict Definitions
 
-- `confirmed`: the source directly supports the claim
-- `incorrect`: the source discusses the topic and contradicts the claim
-- `partially_correct`: part of the claim is supported and part is wrong
-- `hallucinated_citation`: the claim is attributed to a source that says nothing relevant about it
-- `unverifiable`: the source is relevant, but it does not provide enough detail to verify the claim
+### Confirmed
 
-## Demo Test Set
+The source directly supports the claim.
+
+### Incorrect
+
+The source discusses the same topic and directly contradicts the claim.
+
+### Partially Correct
+
+The claim contains a mix of supported and unsupported details.
+
+### Hallucinated Citation
+
+The claim is being attributed to a source that says nothing relevant about that claim.
+
+### Unverifiable
+
+The source is relevant to the topic, but it does not provide enough detail to confirm or refute the claim.
+
+## 14. Frontend Specification
+
+The frontend should provide:
+
+- a large text area for paragraph input
+- a required source URL field
+- an optional citation hint field
+- a clear submit action
+- a results view with:
+  - original text
+  - corrected text
+  - verdict summary counts
+  - one card per extracted claim
+  - source context section
+
+The frontend should avoid presenting the product as a multi-source or whole-document checker.
+
+## 15. Demo Test Set
 
 Use `https://arxiv.org/abs/2303.08774`.
 
@@ -270,48 +422,86 @@ Use `https://arxiv.org/abs/2303.08774`.
 }
 ```
 
-## Environment Variables
+### Mixed Long-Paragraph Demo
+
+```json
+{
+  "text": "A lot of technical reports are remembered for one or two headline facts, even though most of the document is really made up of setup, caveats, and evaluation framing. The GPT-4 Technical Report is similar in that sense: it spends a good amount of time explaining how the model is assessed and how its results should be interpreted. In the report, GPT-4 achieves 67.0% on the HumanEval coding benchmark in the 0-shot setting. The report also introduced the Transformer architecture in 2017, which later became the basis for GPT models. It additionally presents chain-of-thought prompting as a reasoning method first created by OpenAI in 2022. Beyond those points, much of the paper has the familiar texture of a serious research report, where the surrounding prose often matters for context more than for any single standalone claim.",
+  "source_url": "https://arxiv.org/abs/2303.08774",
+  "citation_hint": "GPT-4 Technical Report (2023)"
+}
+```
+
+Expected high-level result:
+
+- `3 claims checked`
+- `1 confirmed`
+- `2 incorrect`
+
+## 16. Environment Variables
+
+Backend:
 
 ```env
-NIA_API_KEY=nk_...
-GROQ_API_KEY=gsk_...
+NIA_API_KEY=your_nia_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
 REQUEST_TIMEOUT_SECONDS=300
 NIA_POLL_INTERVAL_SECONDS=2
 MAX_CLAIMS=5
 ```
 
-Frontend local config:
+Frontend:
 
 ```env
 VITE_API_URL=http://localhost:8000
 ```
 
-## Project Structure
+## 17. Project Structure
 
 ```text
-backend/
-  app/
+SourceCheck/
+  backend/
+    app/
+      __init__.py
+      config.py
+      main.py
+      schemas.py
+      sourcecheck.py
+    .env.example
     main.py
-    schemas.py
-    sourcecheck.py
-    config.py
-  main.py
-  PRD-backend.md
-  smoke_test.py
-
-frontend/
-  src/
-    pages/Home.jsx
-    components/
+    PRD-backend.md
+    requirements.txt
+    smoke_test.py
+  frontend/
+    public/
+      favicon.svg
+    src/
+      assets/
+      components/
+        gl/
+        Background.jsx
+        Navbar.jsx
+        PaperCard.jsx
+        SummaryBar.jsx
+        VerdictCard.jsx
+      pages/
+        About.jsx
+        Home.jsx
+      App.jsx
+      index.css
+      main.jsx
+      mockData.js
+    README.md
+    package.json
+  .gitignore
+  PRD.md
   README.md
-
-PRD.md
-README.md
+  desc-devpost.md
 ```
 
-## Local Run
+## 18. Local Development
 
-Backend:
+### Backend
 
 ```bash
 cd backend
@@ -322,18 +512,53 @@ cp .env.example .env
 uvicorn main:app --reload
 ```
 
-Frontend:
+Backend docs: `http://localhost:8000/docs`
+
+### Frontend
 
 ```bash
 cd frontend
 npm install
+```
+
+Create `frontend/.env.local`:
+
+```env
+VITE_API_URL=http://localhost:8000
+```
+
+Run the app:
+
+```bash
 npm run dev
 ```
 
-## Known Limitations
+Frontend URL: `http://localhost:5173`
 
-- The product assumes one source URL for the whole paragraph.
-- Claim extraction is prompt-based, so sentence splitting can vary.
-- Very long passages may produce noisier extraction and rewrite behavior.
-- First-time source indexing can be slow on uncached papers.
-- Repeated automated smoke runs can hit Groq rate limits.
+## 19. Testing
+
+### Manual UI Test
+
+1. Start backend and frontend locally.
+2. Open the frontend.
+3. Paste a known demo paragraph.
+4. Provide the source URL.
+5. Confirm the app returns:
+   - extracted claims
+   - summary counts
+   - corrected paragraph
+
+### Backend Smoke Test
+
+With the backend running:
+
+```bash
+cd backend
+SOURCECHECK_API_BASE=http://127.0.0.1:8000 python3 smoke_test.py
+```
+
+## 20. Security and Configuration Notes
+
+- API keys are loaded from environment variables only.
+- Local secret files such as `backend/.env` and `frontend/.env.local` are gitignored.
+- The repository should only contain placeholder values in `.env.example` and documentation.

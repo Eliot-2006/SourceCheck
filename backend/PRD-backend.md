@@ -134,8 +134,8 @@ One call per request — verdict synthesis only. Groq is never asked to recall f
 ## Environment Variables
 
 ```
-NIA_API_KEY=nk_...
-GROQ_API_KEY=gsk_...
+NIA_API_KEY=your_nia_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
 MAX_CLAIMS=5             # unused in current design, kept for config compatibility
 REQUEST_TIMEOUT_SECONDS=300
 NIA_POLL_INTERVAL_SECONDS=2
@@ -151,6 +151,7 @@ backend/
   requirements.txt
   .env.example
   PRD-backend.md           # this file
+  smoke_test.py
   app/
     __init__.py
     main.py                # FastAPI app, routes

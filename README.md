@@ -2,7 +2,18 @@
 
 SourceCheck verifies research writing against a real source. Paste a paragraph, provide the source URL, and the app extracts claim-like statements, checks them against the source with Nia, and returns both a claim-by-claim audit and a corrected version of the paragraph.
 
-## What It Does
+## Overview
+
+SourceCheck is a paragraph-level verification tool for source-backed writing. It is designed for cases where a paragraph cites or refers to a paper and the user wants to know which claims are actually supported by that source.
+
+The current application:
+
+- accepts one paragraph or short passage
+- verifies it against one source URL
+- extracts factual, source-attributed claims
+- returns both structured verdicts and a corrected paragraph
+
+## Core Capabilities
 
 - checks a paragraph against one source URL
 - extracts factual, source-attributed claims
@@ -20,15 +31,66 @@ The current demo path is built around the GPT-4 Technical Report:
 - retrieval: Nia
 - structured reasoning and rewrite: Groq
 
-## Repo Layout
+## Architecture
 
 ```text
-backend/    FastAPI service and smoke tests
-frontend/   React app
-PRD.md      Current product requirements
+Frontend
+  -> collect paragraph, source URL, citation hint
+  -> POST /check-paragraph
+  -> render original text, corrected text, summary, and claim cards
+
+Backend
+  -> validate request
+  -> index source with Nia
+  -> extract claims
+  -> search source per claim
+  -> synthesize verdicts
+  -> rewrite paragraph conservatively
 ```
 
-## Run Locally
+## Project Structure
+
+```text
+SourceCheck/
+  backend/
+    app/
+      config.py
+      main.py
+      schemas.py
+      sourcecheck.py
+    .env.example
+    main.py
+    PRD-backend.md
+    requirements.txt
+    smoke_test.py
+  frontend/
+    public/
+      favicon.svg
+    src/
+      assets/
+      components/
+        gl/
+        Background.jsx
+        Navbar.jsx
+        PaperCard.jsx
+        SummaryBar.jsx
+        VerdictCard.jsx
+      pages/
+        About.jsx
+        Home.jsx
+      App.jsx
+      index.css
+      main.jsx
+      mockData.js
+    README.md
+    package.json
+  .gitignore
+  PRD.md
+  README.md
+  desc-devpost.md
+```
+
+## Local Development
 
 ### 1. Start the backend
 
@@ -43,8 +105,8 @@ cp .env.example .env
 Add your keys to `backend/.env`:
 
 ```env
-NIA_API_KEY=...
-GROQ_API_KEY=...
+NIA_API_KEY=your_nia_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
 Run the server:
@@ -76,7 +138,7 @@ npm run dev
 
 Frontend URL: `http://localhost:5173`
 
-## API
+## API Summary
 
 ### `GET /health`
 
@@ -107,7 +169,7 @@ Returns:
 
 Legacy single-claim endpoint kept for compatibility.
 
-## Quick Manual Test
+## Example Test
 
 Use this paragraph in the app with the GPT-4 source URL:
 
@@ -122,6 +184,12 @@ Expected shape:
 - `2 incorrect`
 - corrected paragraph rewrites only the wrong claims
 
+## Security and Configuration
+
+- API keys are read from environment variables.
+- Local secret files such as `backend/.env` and `frontend/.env.local` are ignored by git.
+- The repository contains placeholder values only in example config files and documentation.
+
 ## Smoke Test
 
 With the backend running:
@@ -132,10 +200,3 @@ SOURCECHECK_API_BASE=http://127.0.0.1:8000 python3 smoke_test.py
 ```
 
 Note: repeated smoke runs can hit Groq rate limits.
-
-## Current Limitations
-
-- one source URL per paragraph
-- prompt-based claim extraction and rewrite
-- slower first runs for uncached papers
-- no persistence or multi-source citation resolution
