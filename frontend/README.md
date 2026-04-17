@@ -66,11 +66,7 @@ npm run lint
 
 ## Environment Variables
 
-Current UI behavior works without required environment variables because results are mocked.
-
-For backend integration, create a local env file named .env.local in this folder:
-
-VITE_API_URL=http://localhost:8000
+No environment variables are required. This frontend runs in demo mode and always uses local mock verification results.
 
 ## Usage Flow
 
@@ -81,7 +77,7 @@ VITE_API_URL=http://localhost:8000
 5. Select Check Sources.
 6. Review verdict cards and related papers.
 
-Use Load Demo to auto-fill sample content for quick testing.
+Use Demo Cases to auto-fill sample content for quick testing.
 
 ## Deploy To Vercel
 
@@ -95,8 +91,7 @@ Recommended hosting target is Vercel.
 	- Framework Preset: Vite
 	- Build Command: npm run build
 	- Output Directory: dist
-4. Add environment variables when backend is live:
-	- VITE_API_URL = deployed backend URL
+4. No runtime environment variables are required for the current frontend-only demo mode.
 5. Deploy.
 
 ### Vercel CLI

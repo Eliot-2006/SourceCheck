@@ -5,8 +5,6 @@ import { VerdictCard } from "../components/VerdictCard"
 import { SummaryBar } from "../components/SummaryBar"
 import { DEMO_CASES, getMockResultForInput, USE_MOCK_DATA } from "../mockData"
 
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "")
-
 const LOADING_MESSAGES = [
   "🔗 Indexing source URL in Nia...",
   "🔎 Searching source for relevant evidence...",
@@ -115,30 +113,7 @@ export default function Home() {
     }, 4000)
 
     try {
-      if (USE_MOCK_DATA) {
-        setResult(normalizeResult(getMockResultForInput(claimText, sourceUrl), claimText, sourceUrl))
-        return
-      }
-
-      const requestBody = {
-        claim: claimText,
-        source_url: sourceUrl,
-        ...(citationText ? { citation: citationText } : {}),
-      }
-
-      const res = await fetch(`${API_BASE}/check`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      })
-
-      if (!res.ok) {
-        const errorText = await res.text()
-        throw new Error(errorText || `Request failed with status ${res.status}`)
-      }
-
-      const payload = await res.json()
-      setResult(normalizeResult(payload, claimText, sourceUrl))
+      setResult(normalizeResult(getMockResultForInput(claimText, sourceUrl), claimText, sourceUrl))
     } catch (err) {
       setRequestError(err instanceof Error ? err.message : "Failed to verify claim")
     } finally {

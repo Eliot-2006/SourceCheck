@@ -1,8 +1,5 @@
-const ENV_USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA
-const DEFAULT_USE_MOCK_DATA = ENV_USE_MOCK_DATA == null ? true : ENV_USE_MOCK_DATA === "true"
-
-// Mock mode is always disabled in production builds.
-export const USE_MOCK_DATA = import.meta.env.PROD ? false : DEFAULT_USE_MOCK_DATA
+// Frontend-only demo mode is always enabled.
+export const USE_MOCK_DATA = true
 
 export const DEMO_SOURCE_URL = "https://arxiv.org/abs/2303.08774"
 
